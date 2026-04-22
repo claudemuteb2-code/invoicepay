@@ -13,7 +13,7 @@ free tiers.
 
 ## Features
 
-- Magic-link email auth (Supabase)
+- Email + password auth (Supabase)
 - Create / edit / delete invoices with multiple line items, tax, notes, due dates
 - Public shareable invoice link (`/i/[token]`) with a PayPal Pay button — clients
   can pay with PayPal balance, card, or as a guest
@@ -47,10 +47,15 @@ Then open http://localhost:3000.
    - `Project URL` → `NEXT_PUBLIC_SUPABASE_URL`
    - `anon public` key → `NEXT_PUBLIC_SUPABASE_ANON_KEY`
    - `service_role` key → `SUPABASE_SERVICE_ROLE_KEY` (keep this secret)
-4. Go to **Authentication → URL Configuration** and add your site URL (e.g.
-   `http://localhost:3000` for dev, and your Vercel URL for production) to the
-   list of redirect URLs. Also add `http://localhost:3000/auth/callback` and
-   `https://<your-domain>/auth/callback`.
+4. Go to **Authentication → URL Configuration** and set the **Site URL** to
+   your production URL (e.g. `https://<your-domain>`). Add to the **Redirect
+   URLs** list both `http://localhost:3000/auth/callback` and
+   `https://<your-domain>/auth/callback` (used only if you re-enable email
+   confirmation later).
+5. Go to **Authentication → Providers → Email**. Make sure **Enable Email
+   provider** is on, and **turn OFF "Confirm email"** so signups are instant.
+   (If you leave it on, new users must click a confirmation link before they
+   can sign in.) Click **Save**.
 
 That's it for the database.
 
