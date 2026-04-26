@@ -72,9 +72,14 @@ create table if not exists public.invoices (
   due_date date,
   paid_at timestamptz,
   paypal_capture_id text,
+  template text not null default 'classic', -- classic | modern | minimal
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
+
+-- Additive migration for projects created before the template column existed.
+alter table public.invoices
+  add column if not exists template text not null default 'classic';
 
 create index if not exists invoices_user_id_idx on public.invoices(user_id);
 create index if not exists invoices_public_token_idx on public.invoices(public_token);

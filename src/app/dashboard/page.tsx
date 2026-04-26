@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
-import { formatMoney } from "@/lib/utils";
+import { formatMoney } from "@/lib/currencies";
 import type { Invoice } from "@/types/db";
 
 export const dynamic = "force-dynamic";
@@ -41,15 +41,18 @@ export default async function DashboardPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-bold">Invoices</h1>
-          <p className="text-sm text-slate-600">
+          <h1 className="text-2xl font-bold tracking-tight text-slate-900">
+            Invoices
+          </h1>
+          <p className="mt-1 text-sm text-slate-600">
             {isPro ? (
-              <>You're on the Pro plan — unlimited invoices.</>
+              <>You&apos;re on the Pro plan — unlimited invoices.</>
             ) : (
               <>
-                Free plan: {thisMonth}/3 invoices used this month.{" "}
+                Free plan: <strong>{thisMonth}/3</strong> invoices used this
+                month.{" "}
                 <Link
                   href="/dashboard/billing"
                   className="font-semibold text-brand"
@@ -61,25 +64,22 @@ export default async function DashboardPage() {
           </p>
         </div>
         <Link href="/dashboard/invoices/new" className="btn-primary">
-          New invoice
+          + New invoice
         </Link>
       </div>
 
       <div className="grid gap-4 md:grid-cols-3">
-        <div className="card">
-          <div className="text-xs uppercase text-slate-500">Outstanding</div>
-          <div className="mt-1 text-2xl font-bold">
-            {formatMoney(outstanding)}
-          </div>
-        </div>
-        <div className="card">
-          <div className="text-xs uppercase text-slate-500">Paid</div>
-          <div className="mt-1 text-2xl font-bold">{formatMoney(paid)}</div>
-        </div>
-        <div className="card">
-          <div className="text-xs uppercase text-slate-500">Total invoices</div>
-          <div className="mt-1 text-2xl font-bold">{list.length}</div>
-        </div>
+        <StatCard
+          label="Outstanding"
+          value={formatMoney(outstanding)}
+          tone="amber"
+        />
+        <StatCard label="Paid" value={formatMoney(paid)} tone="emerald" />
+        <StatCard
+          label="Total invoices"
+          value={String(list.length)}
+          tone="slate"
+        />
       </div>
 
       <div className="card p-0">
@@ -132,6 +132,38 @@ export default async function DashboardPage() {
             </tbody>
           </table>
         )}
+      </div>
+    </div>
+  );
+}
+
+function StatCard({
+  label,
+  value,
+  tone,
+}: {
+  label: string;
+  value: string;
+  tone: "amber" | "emerald" | "slate";
+}) {
+  const tones: Record<string, string> = {
+    amber: "bg-amber-500",
+    emerald: "bg-emerald-500",
+    slate: "bg-slate-400",
+  };
+  return (
+    <div className="card relative overflow-hidden">
+      <div
+        className={`absolute left-0 top-0 h-full w-1 ${tones[tone]}`}
+        aria-hidden
+      />
+      <div className="pl-2">
+        <div className="text-xs font-semibold uppercase tracking-wider text-slate-500">
+          {label}
+        </div>
+        <div className="mt-1 text-2xl font-bold tabular-nums text-slate-900">
+          {value}
+        </div>
       </div>
     </div>
   );

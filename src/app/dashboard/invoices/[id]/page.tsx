@@ -1,8 +1,10 @@
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
-import { formatMoney } from "@/lib/utils";
 import type { Invoice } from "@/types/db";
+import { getTemplate } from "@/lib/templates";
+import InvoiceRender from "@/components/invoice/InvoiceRender";
+import PdfDownloadButton from "@/components/invoice/PdfDownloadButton";
 import InvoiceActions from "./InvoiceActions";
 
 export const dynamic = "force-dynamic";
@@ -28,14 +30,24 @@ export default async function InvoiceDetail({
   if (!invoice) notFound();
   const inv = invoice as Invoice;
 
+  const { data: profile } = await supabase
+    .from("profiles")
+    .select("business_name, email")
+    .eq("id", user.id)
+    .single();
+
+  const businessName =
+    profile?.business_name || profile?.email || "InvoicePay user";
+
   const appUrl =
     process.env.NEXT_PUBLIC_APP_URL?.replace(/\/$/, "") ||
     "http://localhost:3000";
   const publicUrl = `${appUrl}/i/${inv.public_token}`;
+  const template = getTemplate(inv.template);
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
           <Link
             href="/dashboard"
@@ -43,84 +55,32 @@ export default async function InvoiceDetail({
           >
             ← Back
           </Link>
-          <h1 className="mt-2 text-2xl font-bold">Invoice {inv.number}</h1>
-          <p className="text-sm text-slate-600">
-            Status: <span className="font-semibold">{inv.status}</span>
+          <h1 className="mt-2 text-2xl font-bold text-slate-900">
+            Invoice {inv.number}
+          </h1>
+          <p className="mt-1 flex items-center gap-2 text-sm text-slate-600">
+            <StatusBadge status={inv.status} />
+            <span className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2.5 py-0.5 text-xs font-medium text-slate-700">
+              <span
+                className="h-1.5 w-1.5 rounded-full"
+                style={{ backgroundColor: template.accent }}
+              />
+              {template.name}
+            </span>
             {inv.paid_at && (
-              <> · paid {new Date(inv.paid_at).toLocaleString()}</>
+              <span className="text-xs text-slate-500">
+                · paid {new Date(inv.paid_at).toLocaleString()}
+              </span>
             )}
           </p>
         </div>
-        <InvoiceActions id={inv.id} publicUrl={publicUrl} />
+        <div className="flex flex-wrap items-center gap-2">
+          <PdfDownloadButton invoice={inv} businessName={businessName} />
+          <InvoiceActions id={inv.id} publicUrl={publicUrl} />
+        </div>
       </div>
 
-      <div className="card">
-        <div className="mb-4 flex items-center justify-between">
-          <div>
-            <div className="text-sm text-slate-500">Bill to</div>
-            <div className="font-semibold">{inv.client_name}</div>
-            {inv.client_email && (
-              <div className="text-sm text-slate-600">{inv.client_email}</div>
-            )}
-          </div>
-          <div className="text-right">
-            <div className="text-sm text-slate-500">Total</div>
-            <div className="text-2xl font-bold">
-              {formatMoney(Number(inv.total), inv.currency)}
-            </div>
-            {inv.due_date && (
-              <div className="text-xs text-slate-500">
-                Due {new Date(inv.due_date).toLocaleDateString()}
-              </div>
-            )}
-          </div>
-        </div>
-
-        <table className="w-full text-sm">
-          <thead className="border-b border-slate-200 text-left text-xs uppercase text-slate-500">
-            <tr>
-              <th className="py-2">Description</th>
-              <th className="py-2 text-right">Qty</th>
-              <th className="py-2 text-right">Rate</th>
-              <th className="py-2 text-right">Amount</th>
-            </tr>
-          </thead>
-          <tbody>
-            {inv.items.map((it, idx) => (
-              <tr key={idx} className="border-b border-slate-100">
-                <td className="py-2">{it.description}</td>
-                <td className="py-2 text-right">{it.quantity}</td>
-                <td className="py-2 text-right">
-                  {formatMoney(Number(it.rate), inv.currency)}
-                </td>
-                <td className="py-2 text-right">
-                  {formatMoney(
-                    Number(it.quantity) * Number(it.rate),
-                    inv.currency,
-                  )}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-
-        <div className="mt-4 flex flex-col items-end gap-1 text-sm">
-          <div>Subtotal: {formatMoney(Number(inv.subtotal), inv.currency)}</div>
-          <div>
-            Tax ({inv.tax_rate}%):{" "}
-            {formatMoney(Number(inv.tax_amount), inv.currency)}
-          </div>
-          <div className="text-lg font-bold">
-            Total {formatMoney(Number(inv.total), inv.currency)}
-          </div>
-        </div>
-
-        {inv.notes && (
-          <p className="mt-6 whitespace-pre-wrap text-sm text-slate-600">
-            {inv.notes}
-          </p>
-        )}
-      </div>
+      <InvoiceRender invoice={inv} businessName={businessName} />
 
       <div className="card">
         <h2 className="text-lg font-semibold">Share this invoice</h2>
@@ -138,5 +98,23 @@ export default async function InvoiceDetail({
         </div>
       </div>
     </div>
+  );
+}
+
+function StatusBadge({ status }: { status: string }) {
+  const map: Record<string, string> = {
+    draft: "bg-slate-100 text-slate-700",
+    sent: "bg-blue-100 text-blue-700",
+    paid: "bg-emerald-100 text-emerald-800",
+  };
+  return (
+    <span
+      className={`inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-semibold uppercase tracking-wider ${
+        map[status] || map.draft
+      }`}
+    >
+      <span className="h-1.5 w-1.5 rounded-full bg-current" />
+      {status}
+    </span>
   );
 }

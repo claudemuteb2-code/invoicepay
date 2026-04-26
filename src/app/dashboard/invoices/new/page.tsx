@@ -56,7 +56,7 @@ export default async function NewInvoicePage() {
           </Link>
         </div>
       ) : (
-        <InvoiceForm />
+        <InvoiceForm isPro={isPro} />
       )}
     </div>
   );

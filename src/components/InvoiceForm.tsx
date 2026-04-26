@@ -2,21 +2,31 @@
 
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { computeInvoiceTotals, formatMoney } from "@/lib/utils";
+import { computeInvoiceTotals } from "@/lib/utils";
+import { formatMoney } from "@/lib/currencies";
+import type { TemplateId } from "@/lib/templates";
 import type { Invoice, InvoiceItem } from "@/types/db";
+import CurrencySelect from "./CurrencySelect";
+import TemplatePicker from "./TemplatePicker";
 
 type Props = {
   initial?: Partial<Invoice>;
+  isPro: boolean;
 };
 
-export default function InvoiceForm({ initial }: Props) {
+export default function InvoiceForm({ initial, isPro }: Props) {
   const router = useRouter();
   const [clientName, setClientName] = useState(initial?.client_name ?? "");
   const [clientEmail, setClientEmail] = useState(initial?.client_email ?? "");
   const [currency, setCurrency] = useState(initial?.currency ?? "USD");
-  const [taxRate, setTaxRate] = useState<number>(Number(initial?.tax_rate ?? 0));
+  const [taxRate, setTaxRate] = useState<number>(
+    Number(initial?.tax_rate ?? 0),
+  );
   const [dueDate, setDueDate] = useState(initial?.due_date ?? "");
   const [notes, setNotes] = useState(initial?.notes ?? "");
+  const [template, setTemplate] = useState<TemplateId>(
+    (initial?.template as TemplateId) ?? "classic",
+  );
   const [items, setItems] = useState<InvoiceItem[]>(
     (initial?.items as InvoiceItem[]) ?? [
       { description: "", quantity: 1, rate: 0 },
@@ -25,18 +35,19 @@ export default function InvoiceForm({ initial }: Props) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const totals = useMemo(() => computeInvoiceTotals(items, taxRate), [items, taxRate]);
+  const totals = useMemo(
+    () => computeInvoiceTotals(items, taxRate),
+    [items, taxRate],
+  );
 
   function updateItem(idx: number, patch: Partial<InvoiceItem>) {
     setItems((prev) =>
       prev.map((it, i) => (i === idx ? { ...it, ...patch } : it)),
     );
   }
-
   function addItem() {
     setItems((prev) => [...prev, { description: "", quantity: 1, rate: 0 }]);
   }
-
   function removeItem(idx: number) {
     setItems((prev) => prev.filter((_, i) => i !== idx));
   }
@@ -54,6 +65,7 @@ export default function InvoiceForm({ initial }: Props) {
         tax_rate: taxRate,
         due_date: dueDate || null,
         notes: notes || null,
+        template,
         status: "sent",
       };
       const url = initial?.id ? `/api/invoices/${initial.id}` : "/api/invoices";
@@ -169,15 +181,7 @@ export default function InvoiceForm({ initial }: Props) {
           <div className="grid gap-4 md:grid-cols-2">
             <div>
               <label className="label">Currency</label>
-              <select
-                className="input"
-                value={currency}
-                onChange={(e) => setCurrency(e.target.value)}
-              >
-                {["USD", "EUR", "GBP", "CAD", "AUD"].map((c) => (
-                  <option key={c}>{c}</option>
-                ))}
-              </select>
+              <CurrencySelect value={currency} onChange={setCurrency} />
             </div>
             <div>
               <label className="label">Tax rate (%)</label>
@@ -228,6 +232,14 @@ export default function InvoiceForm({ initial }: Props) {
             </div>
           </dl>
         </div>
+      </div>
+
+      <div className="card">
+        <TemplatePicker
+          value={template}
+          onChange={setTemplate}
+          isPro={isPro}
+        />
       </div>
 
       {error && (
