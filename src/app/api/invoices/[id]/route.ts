@@ -22,6 +22,7 @@ export async function PATCH(
     due_date?: string | null;
     notes?: string | null;
     status?: string;
+    template?: string;
   };
 
   const patch: Record<string, unknown> = { updated_at: new Date().toISOString() };
@@ -36,6 +37,18 @@ export async function PATCH(
     "status",
   ] as const) {
     if (k in body) patch[k] = body[k] as never;
+  }
+
+  // Only Pro users can assign non-default templates.
+  if (typeof body.template === "string") {
+    const { data: profile } = await supabase
+      .from("profiles")
+      .select("plan")
+      .eq("id", user.id)
+      .single();
+    const isPro = profile?.plan === "pro";
+    patch.template =
+      isPro || body.template === "classic" ? body.template : "classic";
   }
 
   if (body.items) {

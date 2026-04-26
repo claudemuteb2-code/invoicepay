@@ -19,6 +19,7 @@ export async function POST(req: NextRequest) {
     due_date?: string | null;
     notes?: string | null;
     status?: string;
+    template?: string;
   };
 
   if (!body.client_name || !Array.isArray(body.items) || body.items.length === 0) {
@@ -60,6 +61,12 @@ export async function POST(req: NextRequest) {
 
   const totals = computeInvoiceTotals(body.items, body.tax_rate ?? 0);
 
+  // Only Pro users can pick non-default templates.
+  const isPro = profile?.plan === "pro";
+  const requestedTemplate = body.template ?? "classic";
+  const template =
+    isPro || requestedTemplate === "classic" ? requestedTemplate : "classic";
+
   const { data: invoice, error } = await supabase
     .from("invoices")
     .insert({
@@ -76,6 +83,7 @@ export async function POST(req: NextRequest) {
       total: totals.total,
       notes: body.notes ?? null,
       due_date: body.due_date ?? null,
+      template,
     })
     .select()
     .single();

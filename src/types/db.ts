@@ -1,3 +1,5 @@
+import type { TemplateId } from "@/lib/templates";
+
 export type InvoiceItem = {
   description: string;
   quantity: number;
@@ -22,6 +24,7 @@ export type Invoice = {
   due_date: string | null;
   paid_at: string | null;
   paypal_capture_id: string | null;
+  template: TemplateId;
   created_at: string;
   updated_at: string;
 };
