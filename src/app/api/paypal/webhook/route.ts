@@ -1,16 +1,32 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { verifyPayPalWebhook } from "@/lib/paypal";
+import type { PlanId } from "@/lib/plans";
 
 export const dynamic = "force-dynamic";
 
 /**
- * Handles the PayPal webhook events we care about:
- *   - BILLING.SUBSCRIPTION.ACTIVATED
- *   - BILLING.SUBSCRIPTION.CANCELLED
- *   - BILLING.SUBSCRIPTION.SUSPENDED
- *   - PAYMENT.SALE.COMPLETED  (recurring subscription payments)
- *   - CHECKOUT.ORDER.APPROVED / PAYMENT.CAPTURE.COMPLETED (invoice payments)
+ * Map a PayPal plan id (env-configured) back to our internal tier.
+ * Defaults to `pro` for the legacy single-plan deployment.
+ */
+function tierForPaypalPlanId(planId: string | null | undefined): PlanId {
+  if (!planId) return "pro";
+  if (planId === process.env.PAYPAL_STARTER_PLAN_ID) return "starter";
+  if (planId === process.env.PAYPAL_BUSINESS_PLAN_ID) return "business";
+  if (
+    planId === process.env.PAYPAL_PRO_PLAN_ID ||
+    planId === process.env.PAYPAL_PLAN_ID
+  )
+    return "pro";
+  return "pro";
+}
+
+/**
+ * Handles PayPal webhook events.
+ *   - BILLING.SUBSCRIPTION.ACTIVATED / UPDATED — set the user's plan
+ *   - BILLING.SUBSCRIPTION.CANCELLED / EXPIRED / SUSPENDED — downgrade to free
+ *   - PAYMENT.SALE.COMPLETED — extend an active subscription
+ *   - PAYMENT.CAPTURE.COMPLETED / CHECKOUT.ORDER.APPROVED — mark invoice paid
  */
 export async function POST(req: NextRequest) {
   const rawBody = await req.text();
@@ -19,8 +35,6 @@ export async function POST(req: NextRequest) {
     rawBody,
   });
 
-  // In sandbox without a webhook id configured we still process events,
-  // but log the warning. In production you should reject unverified events.
   if (!verified && process.env.PAYPAL_WEBHOOK_ID) {
     console.warn("PayPal webhook signature failed verification");
     return NextResponse.json({ error: "invalid signature" }, { status: 400 });
@@ -53,12 +67,15 @@ export async function POST(req: NextRequest) {
       case "BILLING.SUBSCRIPTION.ACTIVATED":
       case "BILLING.SUBSCRIPTION.UPDATED": {
         const subId = event.resource.id as string;
+        const planId = event.resource.plan_id as string | undefined;
+        const tier = tierForPaypalPlanId(planId);
         await admin
           .from("profiles")
           .update({
-            plan: "pro",
+            plan: tier,
             subscription_status: "ACTIVE",
             paypal_subscription_id: subId,
+            paypal_plan_id: planId ?? null,
             subscription_current_period_end:
               event.resource.billing_info?.next_billing_time ?? null,
             updated_at: new Date().toISOString(),
@@ -81,8 +98,20 @@ export async function POST(req: NextRequest) {
           .eq("paypal_subscription_id", subId);
         break;
       }
+      case "BILLING.SUBSCRIPTION.PAYMENT.FAILED": {
+        const subId = event.resource.id as string;
+        await admin
+          .from("profiles")
+          .update({
+            subscription_status: "PAYMENT_FAILED",
+            updated_at: new Date().toISOString(),
+          })
+          .eq("paypal_subscription_id", subId);
+        break;
+      }
       case "PAYMENT.SALE.COMPLETED": {
-        // Recurring subscription payment: extend the current period.
+        // Recurring subscription payment: keep the active tier as-is, just
+        // refresh updated_at so we know the period rolled over.
         const subId = event.resource.billing_agreement_id as
           | string
           | undefined;
@@ -90,7 +119,6 @@ export async function POST(req: NextRequest) {
           await admin
             .from("profiles")
             .update({
-              plan: "pro",
               subscription_status: "ACTIVE",
               updated_at: new Date().toISOString(),
             })

@@ -1,6 +1,9 @@
-import Link from "next/link";
-import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { redirect } from "next/navigation";
+import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { getPlan } from "@/lib/plans";
+import DarkModeToggle from "@/components/DarkModeToggle";
+import ShortcutsProvider from "@/components/ShortcutsProvider";
+import SidebarNav from "./SidebarNav";
 
 export default async function DashboardLayout({
   children,
@@ -15,87 +18,59 @@ export default async function DashboardLayout({
 
   const { data: profile } = await supabase
     .from("profiles")
-    .select("plan, business_name, email")
+    .select("plan, full_name, company_name, email")
     .eq("id", user.id)
     .single();
 
-  const isPro = profile?.plan === "pro";
+  const plan = getPlan(profile?.plan);
+  const displayName =
+    profile?.full_name || profile?.company_name || profile?.email || user.email;
 
   return (
-    <div className="min-h-screen bg-slate-50">
-      <header className="sticky top-0 z-10 border-b border-slate-200 bg-white/85 backdrop-blur">
-        <div className="mx-auto flex max-w-6xl items-center justify-between gap-4 px-6 py-3">
-          <Link
-            href="/dashboard"
-            className="flex items-center gap-2 text-lg font-bold text-slate-900"
-          >
-            <span
-              className="inline-flex h-7 w-7 items-center justify-center rounded-lg text-white"
-              style={{
-                background: "linear-gradient(135deg, #6366f1 0%, #0ea5e9 100%)",
-              }}
-              aria-hidden
-            >
-              <svg
-                width="16"
-                height="16"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2.5"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              >
-                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-                <polyline points="14 2 14 8 20 8" />
-              </svg>
-            </span>
-            InvoicePay
-          </Link>
-          <nav className="flex items-center gap-5 text-sm">
-            <Link
-              href="/dashboard"
-              className="font-medium text-slate-700 hover:text-slate-900"
-            >
-              Invoices
-            </Link>
-            <Link
-              href="/dashboard/settings"
-              className="font-medium text-slate-700 hover:text-slate-900"
-            >
-              Settings
-            </Link>
-            <Link
-              href="/dashboard/billing"
-              className="font-medium text-slate-700 hover:text-slate-900"
-            >
-              Billing
-            </Link>
-            {isPro ? (
-              <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2.5 py-0.5 text-xs font-semibold text-emerald-700">
-                <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
-                Pro
+    <div className="min-h-screen bg-slate-50 dark:bg-slate-950">
+      <ShortcutsProvider />
+      <div className="flex">
+        <SidebarNav planId={plan.id} />
+        <div className="ml-0 flex-1 md:ml-64">
+          <header className="sticky top-0 z-20 flex h-14 items-center justify-between gap-3 border-b border-slate-200 bg-white/80 px-6 backdrop-blur dark:border-slate-800 dark:bg-slate-900/70">
+            <div className="text-sm text-slate-500 dark:text-slate-400">
+              <span className="hidden sm:inline">Signed in as </span>
+              <span className="font-medium text-slate-700 dark:text-slate-200">
+                {displayName}
               </span>
-            ) : (
-              <Link
-                href="/dashboard/billing"
-                className="btn-primary px-3 py-1.5 text-xs"
+            </div>
+            <div className="flex items-center gap-2">
+              <span
+                className={`badge ${
+                  plan.id === "free"
+                    ? "bg-slate-200 text-slate-700 dark:bg-slate-800 dark:text-slate-300"
+                    : plan.id === "starter"
+                      ? "bg-sky-100 text-sky-700 dark:bg-sky-500/15 dark:text-sky-300"
+                      : plan.id === "pro"
+                        ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300"
+                        : "bg-violet-100 text-violet-700 dark:bg-violet-500/15 dark:text-violet-300"
+                }`}
               >
-                Upgrade to Pro
-              </Link>
-            )}
-            <form action="/auth/signout" method="post">
-              <button
-                type="submit"
-                className="text-sm text-slate-500 hover:text-slate-700"
-              >
-                Sign out
-              </button>
-            </form>
-          </nav>
+                {plan.name}
+              </span>
+              <DarkModeToggle />
+              <form action="/auth/signout" method="post">
+                <button
+                  type="submit"
+                  className="btn-ghost px-2 py-1.5 text-xs"
+                >
+                  Sign out
+                </button>
+              </form>
+            </div>
+          </header>
+          <main className="px-6 py-8">
+            <div className="mx-auto max-w-6xl">{children}</div>
+          </main>
         </div>
-      </header>
-      <main className="mx-auto max-w-6xl px-6 py-8">{children}</main>
+      </div>
     </div>
   );
 }
+
+

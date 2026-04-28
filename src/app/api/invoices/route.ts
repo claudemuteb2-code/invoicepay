@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { computeInvoiceTotals, generateInvoiceNumber } from "@/lib/utils";
+import { getLimits, type PlanId } from "@/lib/plans";
 import type { InvoiceItem } from "@/types/db";
 
 export async function POST(req: NextRequest) {
@@ -29,14 +30,17 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  // Enforce free-tier limit: 3 invoices per calendar month.
   const { data: profile } = await supabase
     .from("profiles")
-    .select("plan")
+    .select("plan, invoice_prefix")
     .eq("id", user.id)
     .single();
 
-  if (profile?.plan !== "pro") {
+  const planId = (profile?.plan ?? "free") as PlanId;
+  const limits = getLimits(planId);
+
+  // Enforce monthly invoice cap.
+  if (limits.maxInvoicesPerMonth != null) {
     const now = new Date();
     const monthStart = new Date(
       now.getFullYear(),
@@ -48,11 +52,10 @@ export async function POST(req: NextRequest) {
       .select("*", { count: "exact", head: true })
       .eq("user_id", user.id)
       .gte("created_at", monthStart);
-    if ((count ?? 0) >= 3) {
+    if ((count ?? 0) >= limits.maxInvoicesPerMonth) {
       return NextResponse.json(
         {
-          error:
-            "Free plan limit reached (3 invoices per month). Upgrade to Pro for unlimited.",
+          error: `You've reached your plan's limit of ${limits.maxInvoicesPerMonth} invoices this month. Upgrade for more.`,
         },
         { status: 402 },
       );
@@ -61,17 +64,25 @@ export async function POST(req: NextRequest) {
 
   const totals = computeInvoiceTotals(body.items, body.tax_rate ?? 0);
 
-  // Only Pro users can pick non-default templates.
-  const isPro = profile?.plan === "pro";
+  // Template gating: Free → classic only. Starter+ → 3 templates. Pro+ → all.
   const requestedTemplate = body.template ?? "classic";
-  const template =
-    isPro || requestedTemplate === "classic" ? requestedTemplate : "classic";
+  const allowedTemplates =
+    limits.templateCount >= 6
+      ? ["classic", "modern", "minimal"]
+      : limits.templateCount >= 3
+        ? ["classic", "modern", "minimal"]
+        : ["classic"];
+  const template = allowedTemplates.includes(requestedTemplate)
+    ? requestedTemplate
+    : "classic";
+
+  const prefix = (profile?.invoice_prefix as string | null) || "INV";
 
   const { data: invoice, error } = await supabase
     .from("invoices")
     .insert({
       user_id: user.id,
-      number: generateInvoiceNumber(),
+      number: generateInvoiceNumber(prefix),
       status: body.status ?? "draft",
       client_name: body.client_name,
       client_email: body.client_email ?? null,
