@@ -3,6 +3,7 @@
 import Script from "next/script";
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import type { PlanId } from "@/lib/plans";
 
 declare global {
   interface Window {
@@ -13,9 +14,11 @@ declare global {
 export default function SubscribeButton({
   clientId,
   planId,
+  planTier,
 }: {
   clientId: string;
   planId: string;
+  planTier: PlanId;
 }) {
   const ref = useRef<HTMLDivElement>(null);
   const router = useRouter();
@@ -37,7 +40,10 @@ export default function SubscribeButton({
             const res = await fetch("/api/paypal/subscribe", {
               method: "POST",
               headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ subscriptionID: data.subscriptionID }),
+              body: JSON.stringify({
+                subscriptionID: data.subscriptionID,
+                planTier,
+              }),
             });
             if (res.ok) router.refresh();
             else setError("Couldn't activate subscription — try refreshing.");
@@ -51,18 +57,18 @@ export default function SubscribeButton({
     } catch (err) {
       console.error(err);
     }
-  }, [ready, clientId, planId, router]);
+  }, [ready, clientId, planId, planTier, router]);
 
   if (!clientId) {
     return (
-      <div className="text-xs text-slate-500">
+      <div className="text-xs text-slate-500 dark:text-slate-400">
         PayPal not configured.
       </div>
     );
   }
 
   return (
-    <div className="w-[260px]">
+    <div className="w-full">
       <Script
         src={`https://www.paypal.com/sdk/js?client-id=${encodeURIComponent(
           clientId,

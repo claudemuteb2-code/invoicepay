@@ -23,12 +23,12 @@ export default async function PublicInvoicePage({
 
   const { data: profile } = await admin
     .from("profiles")
-    .select("business_name, email")
+    .select("company_name, email")
     .eq("id", inv.user_id)
     .single();
 
   const businessName =
-    profile?.business_name || profile?.email || "InvoicePay user";
+    profile?.company_name || profile?.email || "InvoiceFlow user";
   const clientId = process.env.NEXT_PUBLIC_PAYPAL_CLIENT_ID || "";
 
   return (
@@ -73,7 +73,7 @@ export default async function PublicInvoicePage({
         </div>
 
         <p className="mt-4 text-center text-xs text-slate-500">
-          Powered by <span className="font-semibold">InvoicePay</span>
+          Powered by <span className="font-semibold">InvoiceFlow</span>
         </p>
       </div>
     </main>

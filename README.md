@@ -1,9 +1,9 @@
-# InvoicePay
+# InvoiceFlow
 
 Send professional invoices and collect payments via PayPal in under 30 seconds.
 
-Built for freelancers who are tired of chasing clients. Free to start, $9/mo for
-unlimited invoices.
+Built for freelancers, agencies and small businesses. Four-tier plan model:
+Free ($0), Starter ($12/mo), Pro ($29/mo), Business ($79/mo).
 
 **Stack:** Next.js 14 (App Router) · TypeScript · Tailwind CSS · Supabase
 (Postgres + Auth) · PayPal (subscriptions + one-off orders). Runs entirely on
@@ -18,8 +18,12 @@ free tiers.
 - Public shareable invoice link (`/i/[token]`) with a PayPal Pay button — clients
   can pay with PayPal balance, card, or as a guest
 - Dashboard with outstanding / paid totals
-- Free tier: 3 invoices / month; Pro tier ($9/mo) unlocks unlimited
-- PayPal subscription for Pro billing with webhook-driven state sync
+- 4-tier plans: Free / Starter / Pro / Business with server-side limit
+  enforcement (clients, invoices/month, templates, branding, recurring,
+  reports, team, API)
+- PayPal subscription for paid tiers with webhook-driven state sync
+- Public `/pricing` and `/status` pages
+- Sidebar dashboard, dark mode toggle, keyboard shortcuts (N / C / /)
 
 ---
 

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { computeInvoiceTotals } from "@/lib/utils";
+import { getLimits, type PlanId } from "@/lib/plans";
 import type { InvoiceItem } from "@/types/db";
 
 export async function PATCH(
@@ -39,16 +40,20 @@ export async function PATCH(
     if (k in body) patch[k] = body[k] as never;
   }
 
-  // Only Pro users can assign non-default templates.
+  // Template gating by plan.
   if (typeof body.template === "string") {
     const { data: profile } = await supabase
       .from("profiles")
       .select("plan")
       .eq("id", user.id)
       .single();
-    const isPro = profile?.plan === "pro";
-    patch.template =
-      isPro || body.template === "classic" ? body.template : "classic";
+    const planId = (profile?.plan ?? "free") as PlanId;
+    const limits = getLimits(planId);
+    const allowed =
+      limits.templateCount >= 3
+        ? ["classic", "modern", "minimal"]
+        : ["classic"];
+    patch.template = allowed.includes(body.template) ? body.template : "classic";
   }
 
   if (body.items) {

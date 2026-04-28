@@ -17,10 +17,11 @@ export function computeInvoiceTotals(
   };
 }
 
-export function generateInvoiceNumber() {
+export function generateInvoiceNumber(prefix: string = "INV") {
   const now = new Date();
   const y = now.getFullYear().toString().slice(-2);
   const m = String(now.getMonth() + 1).padStart(2, "0");
   const rand = Math.floor(1000 + Math.random() * 9000);
-  return `INV-${y}${m}-${rand}`;
+  const safe = (prefix || "INV").replace(/[^A-Za-z0-9_-]/g, "").slice(0, 8) || "INV";
+  return `${safe}-${y}${m}-${rand}`;
 }

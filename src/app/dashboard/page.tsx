@@ -1,6 +1,8 @@
 import Link from "next/link";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { formatMoney } from "@/lib/currencies";
+import { getPlan, type PlanId } from "@/lib/plans";
+import UpgradeBanner from "@/components/UpgradeBanner";
 import type { Invoice } from "@/types/db";
 
 export const dynamic = "force-dynamic";
@@ -15,60 +17,93 @@ export default async function DashboardPage() {
     .from("invoices")
     .select("*")
     .eq("user_id", user!.id)
-    .order("created_at", { ascending: false });
+    .order("created_at", { ascending: false })
+    .limit(10);
 
   const list = (invoices || []) as Invoice[];
 
-  // Count invoices created this calendar month (for free-tier indicator)
   const now = new Date();
   const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
-  const thisMonth = list.filter((i) => new Date(i.created_at) >= monthStart)
-    .length;
+
+  const { count: thisMonthCount } = await supabase
+    .from("invoices")
+    .select("*", { count: "exact", head: true })
+    .eq("user_id", user!.id)
+    .gte("created_at", monthStart.toISOString());
+
+  const { count: activeClientsCount } = await supabase
+    .from("clients")
+    .select("*", { count: "exact", head: true })
+    .eq("user_id", user!.id)
+    .eq("archived", false);
 
   const { data: profile } = await supabase
     .from("profiles")
-    .select("plan")
+    .select("plan, full_name, company_name")
     .eq("id", user!.id)
     .single();
 
-  const isPro = profile?.plan === "pro";
-  const outstanding = list
-    .filter((i) => i.status !== "paid")
+  const planId = (profile?.plan ?? "free") as PlanId;
+  const plan = getPlan(planId);
+
+  // Aggregate totals across all invoices (full set, not just last 10).
+  const { data: allInvoices } = await supabase
+    .from("invoices")
+    .select("status, total, due_date")
+    .eq("user_id", user!.id);
+
+  const all = (allInvoices || []) as Pick<
+    Invoice,
+    "status" | "total" | "due_date"
+  >[];
+
+  const today = new Date().toISOString().slice(0, 10);
+  const outstanding = all
+    .filter((i) => i.status !== "paid" && i.status !== "cancelled")
     .reduce((s, i) => s + Number(i.total), 0);
-  const paid = list
+  const paid = all
     .filter((i) => i.status === "paid")
     .reduce((s, i) => s + Number(i.total), 0);
+  const overdueCount = all.filter(
+    (i) =>
+      i.status !== "paid" &&
+      i.status !== "cancelled" &&
+      i.due_date &&
+      i.due_date < today,
+  ).length;
+  const paidCount = all.filter((i) => i.status === "paid").length;
+
+  const greetingName = profile?.full_name || profile?.company_name || "there";
 
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight text-slate-900">
-            Invoices
+          <h1 className="text-2xl font-bold tracking-tight text-slate-900 dark:text-slate-100">
+            Welcome back, {greetingName}
           </h1>
-          <p className="mt-1 text-sm text-slate-600">
-            {isPro ? (
-              <>You&apos;re on the Pro plan — unlimited invoices.</>
-            ) : (
-              <>
-                Free plan: <strong>{thisMonth}/3</strong> invoices used this
-                month.{" "}
-                <Link
-                  href="/dashboard/billing"
-                  className="font-semibold text-brand"
-                >
-                  Upgrade for unlimited →
-                </Link>
-              </>
-            )}
+          <p className="mt-1 text-sm text-slate-600 dark:text-slate-400">
+            You&apos;re on the <span className="font-medium">{plan.name}</span>{" "}
+            plan.
           </p>
         </div>
-        <Link href="/dashboard/invoices/new" className="btn-primary">
-          + New invoice
-        </Link>
+        <div className="flex flex-wrap gap-2">
+          <Link href="/dashboard/clients/new" className="btn-secondary">
+            + New client
+          </Link>
+          <Link href="/dashboard/invoices/new" className="btn-primary">
+            + New invoice
+          </Link>
+        </div>
       </div>
 
-      <div className="grid gap-4 md:grid-cols-3">
+      <UpgradeBanner
+        plan={planId}
+        invoicesThisMonth={thisMonthCount ?? 0}
+        activeClients={activeClientsCount ?? 0}
+      />
+
+      <div className="grid gap-4 md:grid-cols-4">
         <StatCard
           label="Outstanding"
           value={formatMoney(outstanding)}
@@ -76,16 +111,34 @@ export default async function DashboardPage() {
         />
         <StatCard label="Paid" value={formatMoney(paid)} tone="emerald" />
         <StatCard
-          label="Total invoices"
-          value={String(list.length)}
+          label="Overdue"
+          value={String(overdueCount)}
+          tone="rose"
+        />
+        <StatCard
+          label="Paid invoices"
+          value={String(paidCount)}
           tone="slate"
         />
       </div>
 
       <div className="card p-0">
+        <div className="flex items-center justify-between border-b border-slate-200 px-6 py-4 dark:border-slate-800">
+          <h2 className="text-base font-semibold text-slate-900 dark:text-slate-100">
+            Recent invoices
+          </h2>
+          <Link
+            href="/dashboard/invoices"
+            className="text-sm font-medium text-brand hover:underline"
+          >
+            View all →
+          </Link>
+        </div>
         {list.length === 0 ? (
           <div className="p-10 text-center">
-            <p className="text-slate-600">No invoices yet.</p>
+            <p className="text-slate-600 dark:text-slate-400">
+              No invoices yet.
+            </p>
             <Link
               href="/dashboard/invoices/new"
               className="btn-primary mt-4 inline-flex"
@@ -95,7 +148,7 @@ export default async function DashboardPage() {
           </div>
         ) : (
           <table className="w-full text-sm">
-            <thead className="border-b border-slate-200 text-left text-xs uppercase text-slate-500">
+            <thead className="border-b border-slate-200 text-left text-xs uppercase text-slate-500 dark:border-slate-800 dark:text-slate-400">
               <tr>
                 <th className="p-4">Number</th>
                 <th className="p-4">Client</th>
@@ -107,16 +160,23 @@ export default async function DashboardPage() {
             </thead>
             <tbody>
               {list.map((inv) => (
-                <tr key={inv.id} className="border-b border-slate-100">
-                  <td className="p-4 font-mono text-xs">{inv.number}</td>
-                  <td className="p-4">{inv.client_name}</td>
-                  <td className="p-4">
+                <tr
+                  key={inv.id}
+                  className="border-b border-slate-100 dark:border-slate-800/60"
+                >
+                  <td className="p-4 font-mono text-xs text-slate-700 dark:text-slate-300">
+                    {inv.number}
+                  </td>
+                  <td className="p-4 text-slate-700 dark:text-slate-200">
+                    {inv.client_name}
+                  </td>
+                  <td className="p-4 text-slate-700 dark:text-slate-200">
                     {formatMoney(Number(inv.total), inv.currency)}
                   </td>
                   <td className="p-4">
                     <StatusBadge status={inv.status} />
                   </td>
-                  <td className="p-4 text-slate-500">
+                  <td className="p-4 text-slate-500 dark:text-slate-400">
                     {new Date(inv.created_at).toLocaleDateString()}
                   </td>
                   <td className="p-4 text-right">
@@ -144,11 +204,12 @@ function StatCard({
 }: {
   label: string;
   value: string;
-  tone: "amber" | "emerald" | "slate";
+  tone: "amber" | "emerald" | "rose" | "slate";
 }) {
   const tones: Record<string, string> = {
     amber: "bg-amber-500",
     emerald: "bg-emerald-500",
+    rose: "bg-rose-500",
     slate: "bg-slate-400",
   };
   return (
@@ -158,12 +219,12 @@ function StatCard({
         aria-hidden
       />
       <div className="pl-2">
-        <div className="text-xs font-semibold uppercase tracking-wider text-slate-500">
+        <p className="text-xs font-medium uppercase tracking-wider text-slate-500 dark:text-slate-400">
           {label}
-        </div>
-        <div className="mt-1 text-2xl font-bold tabular-nums text-slate-900">
+        </p>
+        <p className="mt-1 text-2xl font-bold text-slate-900 dark:text-slate-100">
           {value}
-        </div>
+        </p>
       </div>
     </div>
   );
@@ -171,16 +232,21 @@ function StatCard({
 
 function StatusBadge({ status }: { status: string }) {
   const map: Record<string, string> = {
-    draft: "bg-slate-100 text-slate-700",
-    sent: "bg-blue-100 text-blue-700",
-    paid: "bg-emerald-100 text-emerald-700",
+    draft: "bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300",
+    sent: "bg-blue-100 text-blue-700 dark:bg-blue-500/15 dark:text-blue-300",
+    viewed: "bg-sky-100 text-sky-700 dark:bg-sky-500/15 dark:text-sky-300",
+    paid: "bg-emerald-100 text-emerald-800 dark:bg-emerald-500/15 dark:text-emerald-300",
+    overdue: "bg-rose-100 text-rose-700 dark:bg-rose-500/15 dark:text-rose-300",
+    cancelled:
+      "bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400",
   };
   return (
     <span
-      className={`rounded-full px-2 py-0.5 text-xs font-semibold ${
+      className={`inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-semibold uppercase tracking-wider ${
         map[status] || map.draft
       }`}
     >
+      <span className="h-1.5 w-1.5 rounded-full bg-current" />
       {status}
     </span>
   );

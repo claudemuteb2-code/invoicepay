@@ -1,60 +1,52 @@
 -- =====================================================================
--- InvoiceFlow database schema (canonical)
+-- InvoiceFlow full schema migration (DESTRUCTIVE)
 -- ---------------------------------------------------------------------
--- This is the full schema for a fresh project. Apply once in the SQL
--- editor on a brand-new Supabase project. For an existing project, run
--- supabase/migrations/0003_invoiceflow_full_schema.sql instead — it
--- DROPS the legacy InvoicePay tables and rebuilds the new ones.
+-- This migration WIPES the legacy InvoicePay tables and rebuilds the
+-- full InvoiceFlow schema (clients, invoices, estimates, recurring,
+-- payments, team_members, audit_log, webhook_events).
+--
+-- The user explicitly asked to wipe existing invoice data when scaling
+-- up. Run this in the Supabase SQL editor once. It is safe to run
+-- multiple times — every CREATE is idempotent and the DROPs use IF
+-- EXISTS.
 -- =====================================================================
 
--- ---------------------------------------------------------------------
--- PROFILES
--- ---------------------------------------------------------------------
-create table if not exists public.profiles (
-  id uuid primary key references auth.users(id) on delete cascade,
-  email text not null,
-  -- Personal / brand
-  full_name text,
-  company_name text,
-  logo_url text,
-  address text,
-  phone text,
-  -- Defaults
-  default_currency text not null default 'USD',
-  default_tax_rate numeric(5,2) not null default 0,
-  default_payment_terms text not null default 'net_30',
-  invoice_prefix text not null default 'INV',
-  invoice_footer text,
-  reply_to_email text,
-  email_signature text,
-  -- Plan / billing
-  plan text not null default 'free', -- 'free' | 'starter' | 'pro' | 'business'
-  paypal_subscription_id text,
-  paypal_plan_id text,
-  subscription_status text, -- ACTIVE | CANCELLED | SUSPENDED | PAYMENT_FAILED | null
-  subscription_current_period_end timestamptz,
-  paypal_email text,
-  -- Onboarding
-  onboarding_completed_at timestamptz,
-  -- Audit
-  created_at timestamptz not null default now(),
-  updated_at timestamptz not null default now()
-);
+-- 1. Drop legacy invoice rows (the schema columns differ enough that
+--    we cannot ALTER in place safely).
+drop table if exists public.invoices cascade;
+drop table if exists public.webhook_events cascade;
 
-alter table public.profiles enable row level security;
+-- 2. Drop / re-create profiles trigger so we can extend the function.
+drop trigger if exists on_auth_user_created on auth.users;
+drop function if exists public.handle_new_user();
 
-drop policy if exists "profiles_select_own" on public.profiles;
-create policy "profiles_select_own" on public.profiles
-  for select using (auth.uid() = id);
+-- 3. Extend profiles with the new InvoiceFlow columns. We keep existing
+--    rows (so users stay signed up) but reset every plan to 'free' so
+--    nobody is silently grandfathered in.
+alter table public.profiles
+  add column if not exists full_name text,
+  add column if not exists company_name text,
+  add column if not exists logo_url text,
+  add column if not exists address text,
+  add column if not exists phone text,
+  add column if not exists default_currency text not null default 'USD',
+  add column if not exists default_tax_rate numeric(5,2) not null default 0,
+  add column if not exists default_payment_terms text not null default 'net_30',
+  add column if not exists invoice_prefix text not null default 'INV',
+  add column if not exists invoice_footer text,
+  add column if not exists reply_to_email text,
+  add column if not exists email_signature text,
+  add column if not exists paypal_plan_id text,
+  add column if not exists onboarding_completed_at timestamptz;
 
-drop policy if exists "profiles_update_own" on public.profiles;
-create policy "profiles_update_own" on public.profiles
-  for update using (auth.uid() = id);
+-- Map any legacy 'pro' tier to 'pro' in the new four-tier model.
+update public.profiles set plan = 'free'
+  where plan not in ('free', 'starter', 'pro', 'business');
 
-drop policy if exists "profiles_insert_own" on public.profiles;
-create policy "profiles_insert_own" on public.profiles
-  for insert with check (auth.uid() = id);
+-- Drop legacy single column we replaced.
+alter table public.profiles drop column if exists business_name;
 
+-- 4. Re-add the auth -> profile trigger.
 create or replace function public.handle_new_user()
 returns trigger
 language plpgsql
@@ -69,14 +61,11 @@ begin
 end;
 $$;
 
-drop trigger if exists on_auth_user_created on auth.users;
 create trigger on_auth_user_created
   after insert on auth.users
   for each row execute function public.handle_new_user();
 
--- ---------------------------------------------------------------------
--- CLIENTS
--- ---------------------------------------------------------------------
+-- 5. CLIENTS
 create table if not exists public.clients (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null references auth.users(id) on delete cascade,
@@ -94,85 +83,56 @@ create table if not exists public.clients (
 create index if not exists clients_user_id_idx on public.clients(user_id);
 create index if not exists clients_archived_idx on public.clients(user_id, archived);
 alter table public.clients enable row level security;
-
 drop policy if exists "clients_select_own" on public.clients;
-create policy "clients_select_own" on public.clients
-  for select using (auth.uid() = user_id);
-
+create policy "clients_select_own" on public.clients for select using (auth.uid() = user_id);
 drop policy if exists "clients_insert_own" on public.clients;
-create policy "clients_insert_own" on public.clients
-  for insert with check (auth.uid() = user_id);
-
+create policy "clients_insert_own" on public.clients for insert with check (auth.uid() = user_id);
 drop policy if exists "clients_update_own" on public.clients;
-create policy "clients_update_own" on public.clients
-  for update using (auth.uid() = user_id);
-
+create policy "clients_update_own" on public.clients for update using (auth.uid() = user_id);
 drop policy if exists "clients_delete_own" on public.clients;
-create policy "clients_delete_own" on public.clients
-  for delete using (auth.uid() = user_id);
+create policy "clients_delete_own" on public.clients for delete using (auth.uid() = user_id);
 
--- ---------------------------------------------------------------------
--- INVOICES
--- ---------------------------------------------------------------------
-create table if not exists public.invoices (
+-- 6. INVOICES (rebuilt from scratch)
+create table public.invoices (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null references auth.users(id) on delete cascade,
   client_id uuid references public.clients(id) on delete set null,
-  -- Public sharing
   public_token text not null unique default encode(gen_random_bytes(16), 'hex'),
-  -- Identity
   number text not null,
   status text not null default 'draft',
-  -- 'draft' | 'sent' | 'viewed' | 'paid' | 'overdue' | 'cancelled'
-  -- Embedded billing-to (denormalised so we keep the snapshot at send time)
   client_name text not null,
   client_email text,
   client_address text,
-  -- Money
   currency text not null default 'USD',
   items jsonb not null default '[]'::jsonb,
-  -- Each item: { description, quantity, rate, tax_rate }
   subtotal numeric(12,2) not null default 0,
   tax_rate numeric(5,2) not null default 0,
   tax_amount numeric(12,2) not null default 0,
   total numeric(12,2) not null default 0,
-  -- Dates
   issue_date date not null default current_date,
   due_date date,
   payment_terms text not null default 'net_30',
-  -- 'net_7' | 'net_15' | 'net_30' | 'net_60' | 'due_on_receipt' | 'custom'
-  -- Other
   notes text,
   template text not null default 'classic',
-  -- Status timestamps
   sent_at timestamptz,
   viewed_at timestamptz,
   paid_at timestamptz,
-  -- Payment tracking
   paypal_capture_id text,
-  -- Audit
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
-create index if not exists invoices_user_id_idx on public.invoices(user_id);
-create index if not exists invoices_client_id_idx on public.invoices(client_id);
-create index if not exists invoices_public_token_idx on public.invoices(public_token);
-create index if not exists invoices_created_at_idx on public.invoices(created_at desc);
-create index if not exists invoices_status_idx on public.invoices(user_id, status);
-
+create index invoices_user_id_idx on public.invoices(user_id);
+create index invoices_client_id_idx on public.invoices(client_id);
+create index invoices_public_token_idx on public.invoices(public_token);
+create index invoices_created_at_idx on public.invoices(created_at desc);
+create index invoices_status_idx on public.invoices(user_id, status);
 alter table public.invoices enable row level security;
-drop policy if exists "invoices_select_own" on public.invoices;
 create policy "invoices_select_own" on public.invoices for select using (auth.uid() = user_id);
-drop policy if exists "invoices_insert_own" on public.invoices;
 create policy "invoices_insert_own" on public.invoices for insert with check (auth.uid() = user_id);
-drop policy if exists "invoices_update_own" on public.invoices;
 create policy "invoices_update_own" on public.invoices for update using (auth.uid() = user_id);
-drop policy if exists "invoices_delete_own" on public.invoices;
 create policy "invoices_delete_own" on public.invoices for delete using (auth.uid() = user_id);
 
--- ---------------------------------------------------------------------
--- ESTIMATES (quotes)
--- ---------------------------------------------------------------------
+-- 7. ESTIMATES
 create table if not exists public.estimates (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null references auth.users(id) on delete cascade,
@@ -180,7 +140,6 @@ create table if not exists public.estimates (
   public_token text not null unique default encode(gen_random_bytes(16), 'hex'),
   number text not null,
   status text not null default 'draft',
-  -- 'draft' | 'sent' | 'accepted' | 'declined' | 'expired'
   client_name text not null,
   client_email text,
   client_address text,
@@ -209,15 +168,12 @@ create policy "estimates_update_own" on public.estimates for update using (auth.
 drop policy if exists "estimates_delete_own" on public.estimates;
 create policy "estimates_delete_own" on public.estimates for delete using (auth.uid() = user_id);
 
--- ---------------------------------------------------------------------
--- RECURRING SCHEDULES
--- ---------------------------------------------------------------------
+-- 8. RECURRING
 create table if not exists public.recurring_schedules (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null references auth.users(id) on delete cascade,
-  -- A "template" invoice that gets cloned on each run.
   template_invoice_id uuid not null references public.invoices(id) on delete cascade,
-  frequency text not null, -- 'weekly' | 'monthly' | 'quarterly' | 'yearly'
+  frequency text not null,
   start_date date not null,
   end_date date,
   next_run_at timestamptz not null,
@@ -239,16 +195,14 @@ create policy "recurring_update_own" on public.recurring_schedules for update us
 drop policy if exists "recurring_delete_own" on public.recurring_schedules;
 create policy "recurring_delete_own" on public.recurring_schedules for delete using (auth.uid() = user_id);
 
--- ---------------------------------------------------------------------
--- PAYMENTS (one row per payment captured against an invoice)
--- ---------------------------------------------------------------------
+-- 9. PAYMENTS
 create table if not exists public.payments (
   id uuid primary key default gen_random_uuid(),
   invoice_id uuid not null references public.invoices(id) on delete cascade,
   user_id uuid not null references auth.users(id) on delete cascade,
   amount numeric(12,2) not null,
   currency text not null,
-  method text not null default 'paypal', -- 'paypal' | 'manual'
+  method text not null default 'paypal',
   paypal_transaction_id text,
   paid_at timestamptz not null default now(),
   created_at timestamptz not null default now()
@@ -258,18 +212,15 @@ create index if not exists payments_user_idx on public.payments(user_id);
 alter table public.payments enable row level security;
 drop policy if exists "payments_select_own" on public.payments;
 create policy "payments_select_own" on public.payments for select using (auth.uid() = user_id);
--- Inserts handled by service role (webhook / capture endpoint).
 
--- ---------------------------------------------------------------------
--- TEAM MEMBERS (Business tier)
--- ---------------------------------------------------------------------
+-- 10. TEAM MEMBERS
 create table if not exists public.team_members (
   id uuid primary key default gen_random_uuid(),
   workspace_owner_id uuid not null references auth.users(id) on delete cascade,
   user_id uuid references auth.users(id) on delete set null,
   invited_email text not null,
-  role text not null default 'member', -- 'owner' | 'admin' | 'member'
-  status text not null default 'pending', -- 'pending' | 'active' | 'revoked'
+  role text not null default 'member',
+  status text not null default 'pending',
   invited_at timestamptz not null default now(),
   joined_at timestamptz,
   created_at timestamptz not null default now()
@@ -291,9 +242,7 @@ drop policy if exists "team_delete_owner" on public.team_members;
 create policy "team_delete_owner" on public.team_members
   for delete using (auth.uid() = workspace_owner_id);
 
--- ---------------------------------------------------------------------
--- AUDIT LOG
--- ---------------------------------------------------------------------
+-- 11. AUDIT LOG
 create table if not exists public.audit_log (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null references auth.users(id) on delete cascade,
@@ -307,11 +256,8 @@ create index if not exists audit_user_idx on public.audit_log(user_id, created_a
 alter table public.audit_log enable row level security;
 drop policy if exists "audit_select_own" on public.audit_log;
 create policy "audit_select_own" on public.audit_log for select using (auth.uid() = user_id);
--- Inserts handled server-side via service role.
 
--- ---------------------------------------------------------------------
--- WEBHOOK EVENTS (idempotency log for PayPal)
--- ---------------------------------------------------------------------
+-- 12. WEBHOOK EVENTS
 create table if not exists public.webhook_events (
   id text primary key,
   event_type text not null,
@@ -319,4 +265,30 @@ create table if not exists public.webhook_events (
   received_at timestamptz not null default now()
 );
 alter table public.webhook_events enable row level security;
--- No policies => only service role can read/write.
+
+-- 13. Storage bucket for logos.
+insert into storage.buckets (id, name, public)
+  values ('logos', 'logos', true)
+  on conflict (id) do nothing;
+
+drop policy if exists "logos_read_public" on storage.objects;
+create policy "logos_read_public" on storage.objects
+  for select using (bucket_id = 'logos');
+
+drop policy if exists "logos_insert_own" on storage.objects;
+create policy "logos_insert_own" on storage.objects
+  for insert with check (
+    bucket_id = 'logos' and auth.uid()::text = (storage.foldername(name))[1]
+  );
+
+drop policy if exists "logos_update_own" on storage.objects;
+create policy "logos_update_own" on storage.objects
+  for update using (
+    bucket_id = 'logos' and auth.uid()::text = (storage.foldername(name))[1]
+  );
+
+drop policy if exists "logos_delete_own" on storage.objects;
+create policy "logos_delete_own" on storage.objects
+  for delete using (
+    bucket_id = 'logos' and auth.uid()::text = (storage.foldername(name))[1]
+  );

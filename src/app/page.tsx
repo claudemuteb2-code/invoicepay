@@ -1,14 +1,15 @@
 import Link from "next/link";
+import { PLAN_ORDER, PLANS } from "@/lib/plans";
 
 export default function LandingPage() {
   return (
-    <main className="min-h-screen bg-white">
-      <header className="sticky top-0 z-10 border-b border-slate-200/70 bg-white/85 backdrop-blur">
+    <main className="min-h-screen bg-white dark:bg-slate-950">
+      <header className="sticky top-0 z-10 border-b border-slate-200/70 bg-white/85 backdrop-blur dark:border-slate-800 dark:bg-slate-950/80">
         <div className="mx-auto flex max-w-6xl items-center justify-between px-6 py-4">
           <Link href="/" className="flex items-center gap-2">
             <LogoMark />
-            <span className="text-lg font-bold tracking-tight text-slate-900">
-              InvoicePay
+            <span className="text-lg font-bold tracking-tight text-slate-900 dark:text-slate-100">
+              InvoiceFlow
             </span>
           </Link>
           <nav className="hidden items-center gap-6 text-sm text-slate-600 md:flex">
@@ -48,7 +49,7 @@ export default function LandingPage() {
         <div className="mx-auto max-w-4xl px-6 pb-16 pt-20 text-center md:pt-28">
           <span className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-medium text-slate-600 shadow-sm">
             <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
-            Trusted by freelancers in 15+ currencies
+            For freelancers, agencies & small businesses
           </span>
           <h1 className="mt-6 text-5xl font-black tracking-tight text-slate-900 md:text-6xl">
             Get paid faster.
@@ -71,7 +72,7 @@ export default function LandingPage() {
             </Link>
           </div>
           <p className="mt-3 text-xs text-slate-500">
-            No credit card required · 3 free invoices every month
+            No credit card required · 5 free invoices every month
           </p>
         </div>
       </section>
@@ -220,58 +221,58 @@ export default function LandingPage() {
       </section>
 
       {/* Pricing */}
-      <section id="pricing" className="mx-auto max-w-5xl px-6 py-20">
+      <section id="pricing" className="mx-auto max-w-7xl px-6 py-20">
         <div className="mx-auto max-w-2xl text-center">
-          <h2 className="text-3xl font-bold tracking-tight text-slate-900">
-            Simple pricing
+          <h2 className="text-3xl font-bold tracking-tight text-slate-900 dark:text-slate-100">
+            Pick a plan that fits
           </h2>
-          <p className="mt-2 text-slate-600">
-            Start free. Upgrade when you send your 4th invoice.
+          <p className="mt-2 text-slate-600 dark:text-slate-400">
+            Free forever. Upgrade as you grow. Cancel anytime — no contracts.
           </p>
         </div>
-        <div className="mt-10 grid gap-6 md:grid-cols-2">
-          <div className="card flex flex-col">
-            <h3 className="text-xl font-semibold text-slate-900">Free</h3>
-            <p className="mt-1 text-4xl font-black text-slate-900">$0</p>
-            <p className="text-sm text-slate-500">forever</p>
-            <ul className="mt-6 flex-1 space-y-3 text-sm text-slate-600">
-              <Feature>3 invoices per month</Feature>
-              <Feature>PayPal pay button on every invoice</Feature>
-              <Feature>Public shareable invoice link</Feature>
-              <Feature>Classic template</Feature>
-              <Feature>PDF download</Feature>
-              <Feature>Dashboard & status tracking</Feature>
-            </ul>
-            <Link href="/login" className="btn-secondary mt-6 w-full">
-              Start free
-            </Link>
-          </div>
-          <div className="card relative flex flex-col border-brand ring-2 ring-brand/30">
-            <span className="absolute -top-3 left-1/2 -translate-x-1/2 rounded-full bg-brand px-3 py-0.5 text-xs font-semibold text-white">
-              Most popular
-            </span>
-            <h3 className="text-xl font-semibold text-slate-900">Pro</h3>
-            <p className="mt-1 text-4xl font-black text-slate-900">
-              $9
-              <span className="text-base font-normal text-slate-500">/month</span>
-            </p>
-            <p className="text-sm text-slate-500">cancel anytime</p>
-            <ul className="mt-6 flex-1 space-y-3 text-sm text-slate-600">
-              <Feature>Everything in Free</Feature>
-              <Feature>
-                <strong>Unlimited</strong> invoices
-              </Feature>
-              <Feature>
-                <strong>Modern</strong> &amp; <strong>Minimal</strong> templates
-              </Feature>
-              <Feature>All 15 currencies unlocked</Feature>
-              <Feature>Custom business name on every PDF</Feature>
-              <Feature>Priority support</Feature>
-            </ul>
-            <Link href="/login" className="btn-primary mt-6 w-full">
-              Go Pro
-            </Link>
-          </div>
+        <div className="mt-10 grid gap-6 lg:grid-cols-4">
+          {PLAN_ORDER.map((id) => {
+            const plan = PLANS[id];
+            return (
+              <div
+                key={id}
+                className={`relative flex flex-col rounded-2xl border p-6 shadow-sm ${
+                  plan.recommended
+                    ? "border-brand bg-white ring-2 ring-brand/30 dark:bg-slate-900"
+                    : "border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900"
+                }`}
+              >
+                {plan.recommended && (
+                  <span className="absolute -top-3 left-1/2 -translate-x-1/2 rounded-full bg-brand px-3 py-0.5 text-xs font-semibold uppercase tracking-wider text-white">
+                    Most popular
+                  </span>
+                )}
+                <h3 className="text-lg font-semibold text-slate-900 dark:text-slate-100">
+                  {plan.name}
+                </h3>
+                <p className="mt-1 text-sm text-slate-600 dark:text-slate-400">
+                  {plan.description}
+                </p>
+                <p className="mt-4 text-4xl font-black text-slate-900 dark:text-slate-100">
+                  ${plan.priceMonthly}
+                  <span className="text-base font-normal text-slate-500 dark:text-slate-400">
+                    {plan.priceMonthly > 0 ? "/mo" : ""}
+                  </span>
+                </p>
+                <ul className="mt-5 flex-1 space-y-2 text-sm text-slate-600 dark:text-slate-300">
+                  {plan.highlights.map((h) => (
+                    <Feature key={h}>{h}</Feature>
+                  ))}
+                </ul>
+                <Link
+                  href="/login"
+                  className={`mt-6 ${plan.recommended ? "btn-primary" : "btn-secondary"} w-full`}
+                >
+                  {plan.ctaLabel}
+                </Link>
+              </div>
+            );
+          })}
         </div>
       </section>
 
@@ -289,7 +290,7 @@ export default function LandingPage() {
               },
               {
                 q: "What happens when I hit the free limit?",
-                a: "You can view and edit your existing invoices. To send more than 3 in a calendar month, upgrade to Pro for $9/mo.",
+                a: "You can view and edit your existing invoices. To send more than 5 in a calendar month, upgrade to Starter ($12/mo) or Pro ($29/mo) for higher caps.",
               },
               {
                 q: "Which currencies are supported?",
@@ -297,7 +298,7 @@ export default function LandingPage() {
               },
               {
                 q: "Can I cancel any time?",
-                a: "Yes. Cancel your Pro subscription from the Billing page. You keep Pro access until the end of your current billing period.",
+                a: "Yes. Cancel your subscription from the Billing page. You keep paid features until the end of your current billing period.",
               },
             ].map((f) => (
               <details
@@ -340,13 +341,16 @@ export default function LandingPage() {
         <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-4 px-6 text-xs text-slate-500">
           <div className="flex items-center gap-2">
             <LogoMark />
-            <span>© {new Date().getFullYear()} InvoicePay</span>
+            <span>© {new Date().getFullYear()} InvoiceFlow</span>
           </div>
           <div className="flex gap-4">
-            <Link href="#pricing" className="hover:text-slate-800">
+            <Link href="/pricing" className="hover:text-slate-800 dark:hover:text-slate-200">
               Pricing
             </Link>
-            <Link href="/login" className="hover:text-slate-800">
+            <Link href="/status" className="hover:text-slate-800 dark:hover:text-slate-200">
+              Status
+            </Link>
+            <Link href="/login" className="hover:text-slate-800 dark:hover:text-slate-200">
               Sign in
             </Link>
           </div>
